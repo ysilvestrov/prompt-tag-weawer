@@ -1,0 +1,18 @@
+{
+  "language": "uk",
+  "specFile": "spec.md",
+  "specsDir": "docs/specs",
+  "plansDir": "docs/plans",
+  "gate": "npm test && npm run typecheck",
+  "baseBranch": "origin/main",
+  "tmpDir": "tmp",
+  "reviewers": [
+    "codex",
+    "claude",
+    "agy"
+  ],
+  "models": {
+    "codex": "gpt-6.1-sol",
+    "agy": "gemini-4-argon"
+  }
+}
