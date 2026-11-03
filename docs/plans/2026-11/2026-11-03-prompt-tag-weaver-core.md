@@ -38,10 +38,10 @@
 - `src/shared/seed.ts`: фіксовані UUID стартового набору, `createSeedData(): { categories: Category[]; elements: PromptElement[]; templates: PromptTemplate[] }` де кожен запис має `updatedAt: 0`, `deletedAt: null`.
 - `src/shared/validation.ts`: `normalizeName(name: string): string`, `validateCategoryInput`, `validateElementInput`, `validateTemplateInput`, `validateSyncRequest(body: unknown): { ok: true; data: SyncRequest } | { ok: false; error: string }`.
 
-- [ ] **Крок 1:** встановити залежності (`fastify`, `@fastify/cookie`, `@fastify/static`, `react`, `react-dom`, `typescript`, `vite`, `@vitejs/plugin-react`, ` tailwindcss`, `@tailwindcss/vite`, `vite-plugin-pwa`, `vitest`, `@types/node`, `@types/react`, `@types/react-dom`), створити `tsconfig.json`, `vitest.config.ts`, `spec.md`.
-- [ ] **Крок 2:** написати тести `tests/validation.test.ts` для `normalizeName`, стартового набору (`updatedAt === 0`) і всіх меж валідації (порожні рядки, > 120 символів, > 10 000 символів, > 1000 записів у sync, невалідні типи).
-- [ ] **Крок 3:** реалізувати `src/shared/{types,seed,validation}.ts`.
-- [ ] **Крок 4:** запустити гейт `npm test && npm run typecheck` і зробити коміт.
+- [x] **Крок 1:** встановити залежності (`fastify`, `@fastify/cookie`, `@fastify/static`, `react`, `react-dom`, `typescript`, `vite`, `@vitejs/plugin-react`, ` tailwindcss`, `@tailwindcss/vite`, `vite-plugin-pwa`, `vitest`, `@types/node`, `@types/react`, `@types/react-dom`), створити `tsconfig.json`, `vitest.config.ts`, `spec.md`.
+- [x] **Крок 2:** написати тести `tests/validation.test.ts` для `normalizeName`, стартового набору (`updatedAt === 0`) і всіх меж валідації (порожні рядки, > 120 символів, > 10 000 символів, > 1000 записів у sync, невалідні типи).
+- [x] **Крок 3:** реалізувати `src/shared/{types,seed,validation}.ts`.
+- [x] **Крок 4:** запустити гейт `npm test && npm run typecheck` і зробити коміт.
 
 ---
 
