@@ -37,9 +37,9 @@
   - `loadThemeMode(storage: Pick<Storage, 'getItem'>): ThemeMode`
   - `saveThemeMode(storage: Pick<Storage, 'setItem'>, mode: ThemeMode): void`
 
-- [ ] **Крок 1:** написати `tests/client-storage-sync.test.ts` (ініціалізація демо-набору, CRUD-операції з підняттям `updatedAt` демо-категорії при додаванні елемента, каскадне видалення категорії в локальному стані, пакетування > 500 `dirty`-записів у `buildSyncChunks` і `runSyncCycle`, виявлення конфлікту при зміні `userId` з несинхронізованими правками, визначення теми `light`/`dark`/`system`).
-- [ ] **Крок 2:** реалізувати `src/client/storage.ts`, `src/client/sync-client.ts`, `src/client/theme.ts`.
-- [ ] **Крок 3:** запустити гейт `npm test && npm run typecheck` і зробити коміт.
+- [x] **Крок 1:** написати `tests/client-storage-sync.test.ts` (ініціалізація демо-набору, CRUD-операції з підняттям `updatedAt` демо-категорії при додаванні елемента, каскадне видалення категорії в локальному стані, пакетування > 500 `dirty`-записів у `buildSyncChunks` і `runSyncCycle`, виявлення конфлікту при зміні `userId` з несинхронізованими правками, визначення теми `light`/`dark`/`system`).
+- [x] **Крок 2:** реалізувати `src/client/storage.ts`, `src/client/sync-client.ts`, `src/client/theme.ts`.
+- [x] **Крок 3:** запустити гейт `npm test && npm run typecheck` і зробити коміт.
 
 ---
 
