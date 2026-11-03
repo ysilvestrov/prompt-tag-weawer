@@ -81,9 +81,9 @@
   - Перевірка Google `id_token` (`verifyGoogleIdToken(idToken, jwks, expectedClientId, nowMs)`) через `crypto.createPublicKey({ key: jwk, format: 'jwk' })` і `crypto.verify('RSA-SHA256', ...)`.
   - Маршрути Fastify: `GET /api/auth/providers`, `GET /api/auth/me`, `GET /api/auth/google`, `GET /api/auth/google/callback`, `POST /api/auth/logout`.
 
-- [ ] **Крок 1:** написати `tests/auth.test.ts` (перевірка JWK `RS256` із реальною тестовою парою RSA-2048, відмова на змінений підпис, прострочений `exp`, чужий `aud`, невірний `iss`, перевірка PKCE та `state` у `/api/auth/google` і `/api/auth/google/callback`, вихід у `/api/auth/logout`).
-- [ ] **Крок 2:** реалізувати `src/server/db.ts` та `src/server/auth.ts`.
-- [ ] **Крок 3:** запустити гейт `npm test && npm run typecheck` і зробити коміт.
+- [x] **Крок 1:** написати `tests/auth.test.ts` (перевірка JWK `RS256` із реальною тестовою парою RSA-2048, відмова на змінений підпис, прострочений `exp`, чужий `aud`, невірний `iss`, перевірка PKCE та `state` у `/api/auth/google` і `/api/auth/google/callback`, вихід у `/api/auth/logout`).
+- [x] **Крок 2:** реалізувати `src/server/db.ts` та `src/server/auth.ts`.
+- [x] **Крок 3:** запустити гейт `npm test && npm run typecheck` і зробити коміт.
 
 ---
 
