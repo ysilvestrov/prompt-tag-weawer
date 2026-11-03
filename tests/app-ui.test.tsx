@@ -164,4 +164,84 @@ describe('App UI: Generator, CRUD, Theme, and Unsynced Logout Guard', () => {
       'Unsynchronized Changes',
     );
   });
+
+  test('triggers sync on window online event and ignores stale in-flight sync after logout', async () => {
+    const storage = createMemoryStorage();
+    let resolveDelayedSync: ((res: Response) => void) | null = null;
+    let syncCallCount = 0;
+
+    const syncResponses: Array<() => Promise<Response>> = [
+      async () => new Response('offline', { status: 503 }),
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveDelayedSync = resolve;
+        }),
+    ];
+
+    const routeHandlers: Record<string, () => Promise<Response>> = {
+      '/api/auth/providers': async () =>
+        new Response(JSON.stringify({ googleEnabled: true }), { status: 200 }),
+      '/api/auth/me': async () =>
+        new Response(
+          JSON.stringify({
+            user: { id: 'u1', email: 'k@example.com', name: 'Kateryna', picture: null },
+          }),
+          { status: 200 },
+        ),
+      '/api/auth/logout': async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      '/api/sync': () => {
+        const idx = syncCallCount;
+        syncCallCount += 1;
+        return syncResponses[idx]!();
+      },
+    };
+
+    const fakeFetch: typeof fetch = (input) => routeHandlers[String(input)]!();
+
+    render(<App storage={storage} fetchFn={fakeFetch} nowFn={() => 4000} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-status-badge').textContent).toBe(
+        'Signed in as Kateryna · Offline — changes saved locally',
+      );
+    });
+    expect(syncCallCount).toBe(1);
+
+    fireEvent.online(window);
+    await waitFor(() => {
+      expect(syncCallCount).toBe(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Log Out' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Log Out' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-status-badge').textContent).toBe('Offline Guest Mode');
+    });
+
+    resolveDelayedSync!(
+      new Response(
+        JSON.stringify({
+          serverSeq: 99,
+          categories: [
+            {
+              id: 'cat-leaked',
+              name: 'LeakedServerCat',
+              selectionMode: 'single',
+              sortOrder: 0,
+              updatedAt: 9000,
+              deletedAt: null,
+            },
+          ],
+          elements: [],
+          templates: [],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-status-badge').textContent).toBe('Offline Guest Mode');
+    });
+    expect(storage.getItem('ptw_workspace_v1')?.includes('LeakedServerCat')).toBe(false);
+  });
 });

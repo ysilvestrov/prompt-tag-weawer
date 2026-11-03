@@ -7,21 +7,30 @@ import {
   type SyncRequest,
   type SyncResponse,
 } from '../shared/types.ts';
-import { applySyncResponse } from './storage.ts';
+import { applySyncResponse, hasUnsyncedChanges } from './storage.ts';
+
+export const DEFAULT_MAX_CHUNK_BYTES = 3_500_000;
 
 type TaggedDirtyItem =
-  | { kind: 'category'; item: Category }
-  | { kind: 'element'; item: PromptElement }
-  | { kind: 'template'; item: PromptTemplate };
+  | { kind: 'category'; item: Category; bytes: number }
+  | { kind: 'element'; item: PromptElement; bytes: number }
+  | { kind: 'template'; item: PromptTemplate; bytes: number };
+
+const encoder = new TextEncoder();
+
+function estimateJsonBytes(item: object): number {
+  return encoder.encode(JSON.stringify(item)).byteLength + 16;
+}
 
 /**
- * Splits dirty entities into chunks of at most `chunkSize` (default 500),
- * ordering categories first, then elements, then templates so parent categories
- * always precede their child elements.
+ * Splits dirty entities into chunks bounded by both `chunkSize` (default 500 records)
+ * and `maxChunkBytes` (default 3.5 MB, well under the server's 5 MB bodyLimit).
+ * Categories are always ordered before elements, and elements before templates.
  */
 export function buildSyncChunks(
   state: LocalWorkspaceState,
   chunkSize: number = LIMITS.clientSyncChunkSize,
+  maxChunkBytes: number = DEFAULT_MAX_CHUNK_BYTES,
 ): SyncRequest[] {
   const dirtyCatSet = new Set(state.dirtyCategoryIds);
   const dirtyElSet = new Set(state.dirtyElementIds);
@@ -30,13 +39,13 @@ export function buildSyncChunks(
   const queue: TaggedDirtyItem[] = [
     ...state.categories
       .filter((c) => dirtyCatSet.has(c.id))
-      .map((item): TaggedDirtyItem => ({ kind: 'category', item })),
+      .map((item): TaggedDirtyItem => ({ kind: 'category', item, bytes: estimateJsonBytes(item) })),
     ...state.elements
       .filter((e) => dirtyElSet.has(e.id))
-      .map((item): TaggedDirtyItem => ({ kind: 'element', item })),
+      .map((item): TaggedDirtyItem => ({ kind: 'element', item, bytes: estimateJsonBytes(item) })),
     ...state.templates
       .filter((t) => dirtyTmplSet.has(t.id))
-      .map((item): TaggedDirtyItem => ({ kind: 'template', item })),
+      .map((item): TaggedDirtyItem => ({ kind: 'template', item, bytes: estimateJsonBytes(item) })),
   ];
 
   if (queue.length === 0) {
@@ -51,48 +60,77 @@ export function buildSyncChunks(
   }
 
   const chunks: SyncRequest[] = [];
-  for (let i = 0; i < queue.length; i += chunkSize) {
-    const slice = queue.slice(i, i + chunkSize);
-    const categories: Category[] = [];
-    const elements: PromptElement[] = [];
-    const templates: PromptTemplate[] = [];
+  let currentCategories: Category[] = [];
+  let currentElements: PromptElement[] = [];
+  let currentTemplates: PromptTemplate[] = [];
+  let currentCount = 0;
+  let currentBytes = 64;
 
-    for (const entry of slice) {
-      if (entry.kind === 'category') categories.push(entry.item);
-      else if (entry.kind === 'element') elements.push(entry.item);
-      else templates.push(entry.item);
-    }
-
+  const flushChunk = () => {
+    if (currentCount === 0) return;
     chunks.push({
       sinceSeq: state.lastSyncedSeq,
-      categories,
-      elements,
-      templates,
+      categories: currentCategories,
+      elements: currentElements,
+      templates: currentTemplates,
     });
+    currentCategories = [];
+    currentElements = [];
+    currentTemplates = [];
+    currentCount = 0;
+    currentBytes = 64;
+  };
+
+  for (const entry of queue) {
+    if (
+      currentCount > 0 &&
+      (currentCount >= chunkSize || currentBytes + entry.bytes > maxChunkBytes)
+    ) {
+      flushChunk();
+    }
+    if (entry.kind === 'category') currentCategories.push(entry.item);
+    else if (entry.kind === 'element') currentElements.push(entry.item);
+    else currentTemplates.push(entry.item);
+    currentCount += 1;
+    currentBytes += entry.bytes;
   }
 
+  flushChunk();
   return chunks;
 }
 
+/**
+ * Runs a full sync cycle by computing one chunk at a time from the latest state
+ * after applying each server response (so category canonicalizations in chunk 1
+ * immediately remap pending elements before chunk 2 is built).
+ */
 export async function runSyncCycle(
   initialState: LocalWorkspaceState,
   sendSync: (req: SyncRequest) => Promise<SyncResponse>,
   chunkSize: number = LIMITS.clientSyncChunkSize,
+  maxChunkBytes: number = DEFAULT_MAX_CHUNK_BYTES,
 ): Promise<LocalWorkspaceState> {
   let current = initialState;
-  const chunks = buildSyncChunks(current, chunkSize);
+  let sentAtLeastOne = false;
+  let safetyCounter = 0;
+  const maxIterations =
+    current.dirtyCategoryIds.length +
+    current.dirtyElementIds.length +
+    current.dirtyTemplateIds.length +
+    2;
 
-  for (const chunk of chunks) {
-    const request: SyncRequest = {
-      ...chunk,
-      sinceSeq: current.lastSyncedSeq,
-    };
-    const response = await sendSync(request);
+  while ((!sentAtLeastOne || hasUnsyncedChanges(current)) && safetyCounter < maxIterations) {
+    safetyCounter += 1;
+    sentAtLeastOne = true;
+    const nextChunk = buildSyncChunks(current, chunkSize, maxChunkBytes)[0]!;
+    const response = await sendSync(nextChunk);
     current = applySyncResponse(
       current,
-      request.categories.map((c) => c.id),
-      request.elements.map((e) => e.id),
-      request.templates.map((t) => t.id),
+      {
+        categories: nextChunk.categories,
+        elements: nextChunk.elements,
+        templates: nextChunk.templates,
+      },
       response,
     );
   }

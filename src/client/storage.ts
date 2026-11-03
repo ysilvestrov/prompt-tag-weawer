@@ -1,4 +1,4 @@
-import { deleteCategoryCascade } from '../shared/merge.ts';
+import { compareVersions, deleteCategoryCascade } from '../shared/merge.ts';
 import { createSeedData } from '../shared/seed.ts';
 import type {
   Category,
@@ -9,6 +9,7 @@ import type {
   SyncResponse,
 } from '../shared/types.ts';
 import {
+  normalizeName,
   validateCategoryInput,
   validateElementInput,
   validateTemplateInput,
@@ -189,8 +190,6 @@ export function addElement(
     deletedAt: null,
   };
 
-  // Core review finding #1: adding an element to an untouched seed category (updatedAt === 0)
-  // touches the category so it is marked active during account merge.
   const categories = state.categories.map((c) =>
     c.id === parent.id && c.updatedAt === 0 ? { ...c, updatedAt: now } : c,
   );
@@ -224,18 +223,31 @@ export function updateElement(
   const validated = validateElementInput(input, state.elements, elementId);
   if (!validated.ok) return validated;
 
+  const effectiveNow = Math.max(existing.updatedAt + 1, now);
   const updated: PromptElement = {
     ...existing,
     label: validated.data.label,
     value: validated.data.value,
-    updatedAt: Math.max(existing.updatedAt + 1, now),
+    updatedAt: effectiveNow,
   };
+
+  // Touch starter parent category (updatedAt === 0) when a starter element is edited
+  const parent = state.categories.find((c) => c.id === existing.categoryId && c.deletedAt === null);
+  const categories = state.categories.map((c) =>
+    c.id === existing.categoryId && c.updatedAt === 0 ? { ...c, updatedAt: effectiveNow } : c,
+  );
+  const dirtyCategoryIds =
+    parent !== undefined && parent.updatedAt === 0
+      ? addUniqueId(state.dirtyCategoryIds, parent.id)
+      : [...state.dirtyCategoryIds];
 
   return {
     ok: true,
     data: {
       ...state,
+      categories,
       elements: state.elements.map((e) => (e.id === elementId ? updated : e)),
+      dirtyCategoryIds,
       dirtyElementIds: addUniqueId(state.dirtyElementIds, elementId),
     },
   };
@@ -336,14 +348,6 @@ export type AccountReconciliation =
   | { kind: 'ready'; state: LocalWorkspaceState }
   | { kind: 'conflict_unsynced_previous_user'; previousUserId: string; newUserId: string };
 
-/**
- * Reconciles local workspace state when an authenticated user session `userId` is detected (§3.5):
- * - If `ownerUserId === null` (Guest Mode), marks all local records as dirty so they merge into `userId` on sync.
- * - If `ownerUserId === userId`, keeps state as is.
- * - If `ownerUserId !== userId`:
- *   - when there are no unsynced dirty edits, resets local cache to empty for `userId` (`lastSyncedSeq = 0`) so `userId`'s server data is pulled cleanly without leaking the previous user's data;
- *   - when there ARE unsynced dirty edits for `ownerUserId`, returns `'conflict_unsynced_previous_user'` so UI prompts the user before discarding.
- */
 export function reconcileAuthenticatedUser(
   state: LocalWorkspaceState,
   userId: string,
@@ -402,40 +406,144 @@ export function forceSwitchToUser(userId: string): LocalWorkspaceState {
   };
 }
 
+export interface SentSyncBatch {
+  categories: readonly Category[];
+  elements: readonly PromptElement[];
+  templates: readonly PromptTemplate[];
+}
+
 export function applySyncResponse(
   state: LocalWorkspaceState,
-  sentCategoryIds: readonly string[],
-  sentElementIds: readonly string[],
-  sentTemplateIds: readonly string[],
+  sent: SentSyncBatch,
   response: SyncResponse,
 ): LocalWorkspaceState {
+  const sentCatById = new Map(sent.categories.map((c) => [c.id, c]));
+  const sentElById = new Map(sent.elements.map((e) => [e.id, e]));
+  const sentTmplById = new Map(sent.templates.map((t) => [t.id, t]));
+
+  const responseCatIds = new Set(response.categories.map((c) => c.id));
+  const responseElIds = new Set(response.elements.map((e) => e.id));
+  const responseTmplIds = new Set(response.templates.map((t) => t.id));
+
   const catMap = new Map(state.categories.map((c) => [c.id, c]));
-  for (const c of response.categories) {
-    catMap.set(c.id, c);
-  }
-
   const elMap = new Map(state.elements.map((e) => [e.id, e]));
-  for (const e of response.elements) {
-    elMap.set(e.id, e);
-  }
-
   const tmplMap = new Map(state.templates.map((t) => [t.id, t]));
-  for (const t of response.templates) {
-    tmplMap.set(t.id, t);
+
+  // Evict sent untouched demo records (updatedAt === 0 && deletedAt === null) that the server ignored
+  for (const sentCat of sent.categories) {
+    if (!responseCatIds.has(sentCat.id)) {
+      const local = catMap.get(sentCat.id);
+      if (local !== undefined && local.updatedAt === 0 && local.deletedAt === null) {
+        catMap.delete(sentCat.id);
+      }
+    }
+  }
+  for (const sentEl of sent.elements) {
+    if (!responseElIds.has(sentEl.id)) {
+      const local = elMap.get(sentEl.id);
+      if (local !== undefined && local.updatedAt === 0 && local.deletedAt === null) {
+        elMap.delete(sentEl.id);
+      }
+    }
+  }
+  for (const sentTmpl of sent.templates) {
+    if (!responseTmplIds.has(sentTmpl.id)) {
+      const local = tmplMap.get(sentTmpl.id);
+      if (local !== undefined && local.updatedAt === 0 && local.deletedAt === null) {
+        tmplMap.delete(sentTmpl.id);
+      }
+    }
   }
 
-  const sentCats = new Set(sentCategoryIds);
-  const sentEls = new Set(sentElementIds);
-  const sentTmpls = new Set(sentTemplateIds);
+  // Apply authoritative server rows unless the local record was edited concurrently after `sent`
+  for (const c of response.categories) {
+    const local = catMap.get(c.id);
+    const sentVersion = sentCatById.get(c.id);
+    const editedConcurrently =
+      local !== undefined &&
+      state.dirtyCategoryIds.includes(c.id) &&
+      (sentVersion === undefined || local.updatedAt > sentVersion.updatedAt) &&
+      compareVersions(local, c) > 0;
+    if (!editedConcurrently) {
+      catMap.set(c.id, c);
+    }
+  }
+
+  for (const e of response.elements) {
+    const local = elMap.get(e.id);
+    const sentVersion = sentElById.get(e.id);
+    const editedConcurrently =
+      local !== undefined &&
+      state.dirtyElementIds.includes(e.id) &&
+      (sentVersion === undefined || local.updatedAt > sentVersion.updatedAt) &&
+      compareVersions(local, e) > 0;
+    if (!editedConcurrently) {
+      elMap.set(e.id, e);
+    }
+  }
+
+  for (const t of response.templates) {
+    const local = tmplMap.get(t.id);
+    const sentVersion = sentTmplById.get(t.id);
+    const editedConcurrently =
+      local !== undefined &&
+      state.dirtyTemplateIds.includes(t.id) &&
+      (sentVersion === undefined || local.updatedAt > sentVersion.updatedAt) &&
+      compareVersions(local, t) > 0;
+    if (!editedConcurrently) {
+      tmplMap.set(t.id, t);
+    }
+  }
+
+  // If a category was canonicalized into another active category of the same normalized name,
+  // remap any remaining local elements (e.g. queued for a subsequent chunk) to the canonical category ID
+  const activeCatByNorm = new Map<string, Category>();
+  for (const cat of catMap.values()) {
+    if (cat.deletedAt === null) {
+      activeCatByNorm.set(normalizeName(cat.name), cat);
+    }
+  }
+  for (const el of elMap.values()) {
+    if (el.deletedAt !== null) continue;
+    const parent = catMap.get(el.categoryId);
+    if (parent !== undefined && parent.deletedAt !== null) {
+      const canonical = activeCatByNorm.get(normalizeName(parent.name));
+      if (canonical !== undefined && canonical.updatedAt >= parent.deletedAt) {
+        elMap.set(el.id, {
+          ...el,
+          categoryId: canonical.id,
+        });
+      }
+    }
+  }
+
+  const canClearCat = (id: string) => {
+    const sentItem = sentCatById.get(id);
+    if (sentItem === undefined) return false;
+    const currentLocal = state.categories.find((c) => c.id === id);
+    return currentLocal === undefined || currentLocal.updatedAt <= sentItem.updatedAt;
+  };
+  const canClearEl = (id: string) => {
+    const sentItem = sentElById.get(id);
+    if (sentItem === undefined) return false;
+    const currentLocal = state.elements.find((e) => e.id === id);
+    return currentLocal === undefined || currentLocal.updatedAt <= sentItem.updatedAt;
+  };
+  const canClearTmpl = (id: string) => {
+    const sentItem = sentTmplById.get(id);
+    if (sentItem === undefined) return false;
+    const currentLocal = state.templates.find((t) => t.id === id);
+    return currentLocal === undefined || currentLocal.updatedAt <= sentItem.updatedAt;
+  };
 
   return {
     ...state,
-    lastSyncedSeq: response.serverSeq,
+    lastSyncedSeq: Math.max(state.lastSyncedSeq, response.serverSeq),
     categories: [...catMap.values()].sort((a, b) => a.id.localeCompare(b.id)),
     elements: [...elMap.values()].sort((a, b) => a.id.localeCompare(b.id)),
     templates: [...tmplMap.values()].sort((a, b) => a.id.localeCompare(b.id)),
-    dirtyCategoryIds: state.dirtyCategoryIds.filter((id) => !sentCats.has(id)),
-    dirtyElementIds: state.dirtyElementIds.filter((id) => !sentEls.has(id)),
-    dirtyTemplateIds: state.dirtyTemplateIds.filter((id) => !sentTmpls.has(id)),
+    dirtyCategoryIds: state.dirtyCategoryIds.filter((id) => !canClearCat(id)),
+    dirtyElementIds: state.dirtyElementIds.filter((id) => !canClearEl(id)),
+    dirtyTemplateIds: state.dirtyTemplateIds.filter((id) => !canClearTmpl(id)),
   };
 }

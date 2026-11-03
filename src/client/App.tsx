@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   assemblePrompt,
   resolveTemplateVariables,
@@ -17,6 +17,7 @@ import {
   addCategory,
   addElement,
   addTemplate,
+  applySyncResponse,
   createInitialGuestState,
   forceSwitchToUser,
   hasUnsyncedChanges,
@@ -31,7 +32,7 @@ import {
   updateElement,
   updateTemplate,
 } from './storage.ts';
-import { runSyncCycle } from './sync-client.ts';
+import { buildSyncChunks } from './sync-client.ts';
 import {
   loadThemeMode,
   resolveEffectiveTheme,
@@ -119,10 +120,28 @@ export function App({
   const [editingTemplateContent, setEditingTemplateContent] = useState('');
   const [templateError, setTemplateError] = useState<string | null>(null);
 
+  const workspaceRef = useRef<LocalWorkspaceState>(workspace);
+  const userRef = useRef<AuthUser | null>(user);
+  const accountConflictRef = useRef<{ previousUserId: string; newUserId: string } | null>(
+    accountConflict,
+  );
+  const epochRef = useRef<number>(0);
+  const syncInFlightRef = useRef<boolean>(false);
+  const syncQueuedRef = useRef<boolean>(false);
+
   const commitWorkspace = (next: LocalWorkspaceState) => {
+    workspaceRef.current = next;
     setWorkspace(next);
     saveWorkspaceState(storage, next);
   };
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    accountConflictRef.current = accountConflict;
+  }, [accountConflict]);
 
   // Apply theme
   useEffect(() => {
@@ -134,24 +153,74 @@ export function App({
     document.documentElement.classList.toggle('dark', effective === 'dark');
   }, [themeMode, storage]);
 
-  const performSync = async (stateToSync: LocalWorkspaceState) => {
+  const performSync = async () => {
+    if (syncInFlightRef.current) {
+      syncQueuedRef.current = true;
+      return;
+    }
+    syncInFlightRef.current = true;
+    const startEpoch = epochRef.current;
     setSyncStatus('syncing');
+
     try {
-      const next = await runSyncCycle(stateToSync, async (req: SyncRequest) => {
+      let sentAtLeastOne = false;
+      let safetyCounter = 0;
+
+      while (
+        epochRef.current === startEpoch &&
+        (!sentAtLeastOne || hasUnsyncedChanges(workspaceRef.current)) &&
+        safetyCounter < 50
+      ) {
+        safetyCounter += 1;
+        sentAtLeastOne = true;
+        const chunk: SyncRequest = buildSyncChunks(workspaceRef.current)[0]!;
         const res = await fetchFn('/api/sync', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(req),
+          body: JSON.stringify(chunk),
         });
+        if (epochRef.current !== startEpoch) {
+          return;
+        }
         if (!res.ok) {
           throw new Error(`Sync failed: ${res.status}`);
         }
-        return (await res.json()) as SyncResponse;
-      });
-      commitWorkspace(next);
-      setSyncStatus('synced');
+        const response = (await res.json()) as SyncResponse;
+        if (epochRef.current !== startEpoch) {
+          return;
+        }
+        const merged = applySyncResponse(
+          workspaceRef.current,
+          {
+            categories: chunk.categories,
+            elements: chunk.elements,
+            templates: chunk.templates,
+          },
+          response,
+        );
+        commitWorkspace(merged);
+      }
+
+      if (epochRef.current === startEpoch) {
+        setSyncStatus('synced');
+      }
     } catch {
-      setSyncStatus('offline');
+      if (epochRef.current === startEpoch) {
+        setSyncStatus('offline');
+      }
+    } finally {
+      syncInFlightRef.current = false;
+      if (
+        syncQueuedRef.current &&
+        epochRef.current === startEpoch &&
+        userRef.current !== null &&
+        accountConflictRef.current === null
+      ) {
+        syncQueuedRef.current = false;
+        void performSync();
+      } else {
+        syncQueuedRef.current = false;
+      }
     }
   };
 
@@ -172,17 +241,20 @@ export function App({
         if (meRes.ok) {
           const me = (await meRes.json()) as AuthMeResponse;
           setUser(me.user);
+          userRef.current = me.user;
           if (me.user !== null) {
             const current = loadWorkspaceState(storage);
             const rec = reconcileAuthenticatedUser(current, me.user.id);
             if (rec.kind === 'conflict_unsynced_previous_user') {
-              setAccountConflict({
+              const conflict = {
                 previousUserId: rec.previousUserId,
                 newUserId: rec.newUserId,
-              });
+              };
+              accountConflictRef.current = conflict;
+              setAccountConflict(conflict);
             } else {
               commitWorkspace(rec.state);
-              await performSync(rec.state);
+              await performSync();
             }
           }
         }
@@ -193,6 +265,29 @@ export function App({
     void initAuth();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Trigger sync on network reconnect ('online') and returning to tab ('visibilitychange')
+  useEffect(() => {
+    const triggerIfAuthenticated = () => {
+      if (userRef.current !== null && accountConflictRef.current === null) {
+        void performSync();
+      }
+    };
+    const handleOnline = () => {
+      triggerIfAuthenticated();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerIfAuthenticated();
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -255,8 +350,8 @@ export function App({
 
   const mutateAndMaybeSync = (nextState: LocalWorkspaceState) => {
     commitWorkspace(nextState);
-    if (user !== null && accountConflict === null) {
-      void performSync(nextState);
+    if (userRef.current !== null && accountConflictRef.current === null) {
+      void performSync();
     }
   };
 
@@ -398,6 +493,8 @@ export function App({
 
   // Logout & account conflict handlers
   const executeLogout = async () => {
+    epochRef.current += 1;
+    syncQueuedRef.current = false;
     try {
       await fetchFn('/api/auth/logout', { method: 'POST' });
     } catch {
@@ -405,6 +502,8 @@ export function App({
     }
     const freshGuest = createInitialGuestState();
     commitWorkspace(freshGuest);
+    userRef.current = null;
+    accountConflictRef.current = null;
     setUser(null);
     setConfirmLogoutOpen(false);
     setAccountConflict(null);
@@ -412,7 +511,7 @@ export function App({
   };
 
   const handleLogoutClick = () => {
-    if (hasUnsyncedChanges(workspace)) {
+    if (hasUnsyncedChanges(workspaceRef.current)) {
       setConfirmLogoutOpen(true);
     } else {
       void executeLogout();
@@ -421,18 +520,24 @@ export function App({
 
   const handleDiscardAndSwitchUser = async () => {
     if (accountConflict === null) return;
+    epochRef.current += 1;
     const switched = forceSwitchToUser(accountConflict.newUserId);
+    accountConflictRef.current = null;
     setAccountConflict(null);
     commitWorkspace(switched);
-    await performSync(switched);
+    await performSync();
   };
 
   const handleKeepLocalAndSignOutNewUser = async () => {
+    epochRef.current += 1;
+    syncQueuedRef.current = false;
     try {
       await fetchFn('/api/auth/logout', { method: 'POST' });
     } catch {
       // ignore offline
     }
+    userRef.current = null;
+    accountConflictRef.current = null;
     setUser(null);
     setAccountConflict(null);
   };

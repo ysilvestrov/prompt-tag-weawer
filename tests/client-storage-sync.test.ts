@@ -3,16 +3,19 @@ import {
   addCategory,
   addElement,
   addTemplate,
+  applySyncResponse,
   createInitialGuestState,
   loadWorkspaceState,
   reconcileAuthenticatedUser,
   removeCategory,
   updateCategory,
+  updateElement,
 } from '../src/client/storage.ts';
-import { buildSyncChunks, runSyncCycle } from '../src/client/sync-client.ts';
+import { buildSyncChunks, DEFAULT_MAX_CHUNK_BYTES, runSyncCycle } from '../src/client/sync-client.ts';
 import { loadThemeMode, resolveEffectiveTheme, saveThemeMode } from '../src/client/theme.ts';
+import { mergeLibraries } from '../src/shared/merge.ts';
 import { SEED_IDS } from '../src/shared/seed.ts';
-import type { LocalWorkspaceState, SyncRequest, SyncResponse } from '../src/shared/types.ts';
+import type { LibrarySnapshot, LocalWorkspaceState, SyncRequest, SyncResponse } from '../src/shared/types.ts';
 
 function createMemoryStorage() {
   const map = new Map<string, string>();
@@ -204,6 +207,210 @@ describe('sync chunking and cycle', () => {
     expect(syncedState.dirtyCategoryIds).toEqual([]);
     expect(syncedState.dirtyElementIds).toEqual([]);
     expect(syncedState.dirtyTemplateIds).toEqual([]);
+  });
+
+  test('editing a starter element touches its starter parent category, and applySyncResponse evicts ignored starter records while preserving concurrent local edits', () => {
+    const initial = createInitialGuestState();
+    const editedRes = updateElement(
+      initial,
+      SEED_IDS.elements.kateryna,
+      { label: 'Kateryna Custom', value: 'custom portrait' },
+      500,
+    ) as { ok: true; data: LocalWorkspaceState };
+
+    const modelsCat = editedRes.data.categories.find((c) => c.id === SEED_IDS.categories.models)!;
+    expect(modelsCat.updatedAt).toBe(500);
+    expect(editedRes.data.dirtyCategoryIds).toEqual([SEED_IDS.categories.models]);
+    expect(editedRes.data.dirtyElementIds).toEqual([SEED_IDS.elements.kateryna]);
+
+    // Simulate login into an initialized account that has its own "Models" category (id: 'server-models')
+    const reconciled = (
+      reconcileAuthenticatedUser(editedRes.data, 'user-init') as {
+        kind: 'ready';
+        state: LocalWorkspaceState;
+      }
+    ).state;
+
+    // Concurrent local edit to Kateryna (updatedAt = 900) happens while sync request (sent at updatedAt = 500) is in flight
+    const concurrentState = (
+      updateElement(
+        reconciled,
+        SEED_IDS.elements.kateryna,
+        { label: 'Kateryna Concurrent', value: 'newer value' },
+        900,
+      ) as { ok: true; data: LocalWorkspaceState }
+    ).data;
+
+    // Server response canonicalized SEED_IDS.categories.models into 'server-models', returned Kateryna at updatedAt=600,
+    // and omitted untouched seed categories/templates (Clothing, Scenes, Character Portrait)
+    const afterSync = applySyncResponse(
+      concurrentState,
+      {
+        categories: reconciled.categories,
+        elements: reconciled.elements,
+        templates: reconciled.templates,
+      },
+      {
+        serverSeq: 12,
+        categories: [
+          {
+            id: SEED_IDS.categories.models,
+            name: 'Models',
+            selectionMode: 'single',
+            sortOrder: 0,
+            updatedAt: 600,
+            deletedAt: 600,
+          },
+          {
+            id: 'server-models',
+            name: 'Models',
+            selectionMode: 'single',
+            sortOrder: 0,
+            updatedAt: 600,
+            deletedAt: null,
+          },
+        ],
+        elements: [
+          {
+            id: SEED_IDS.elements.kateryna,
+            categoryId: 'server-models',
+            label: 'Kateryna Custom',
+            value: 'custom portrait',
+            sortOrder: 0,
+            updatedAt: 600,
+            deletedAt: null,
+          },
+        ],
+        templates: [],
+      },
+    );
+
+    // Ignored untouched seed categories (Clothing, Scenes) and template (Character Portrait) are evicted
+    expect(afterSync.categories.filter((c) => c.deletedAt === null).map((c) => c.id)).toEqual([
+      'server-models',
+    ]);
+    expect(afterSync.templates).toEqual([]);
+
+    // Concurrent local edit (updatedAt = 900 > sent 500) is preserved and stays in dirtyElementIds,
+    // and its categoryId is remapped from tombstoned SEED_IDS.categories.models to 'server-models'
+    const katerynaLocal = afterSync.elements.find((e) => e.id === SEED_IDS.elements.kateryna);
+    expect(katerynaLocal).toEqual({
+      id: SEED_IDS.elements.kateryna,
+      categoryId: 'server-models',
+      label: 'Kateryna Concurrent',
+      value: 'newer value',
+      sortOrder: 0,
+      updatedAt: 900,
+      deletedAt: null,
+    });
+    expect(afterSync.dirtyElementIds).toEqual([SEED_IDS.elements.kateryna]);
+  });
+
+  test('multi-chunk sync with duplicate category canonicalization remaps child elements in subsequent chunks instead of tombstoning them', async () => {
+    let serverSnapshot: LibrarySnapshot = {
+      categories: [
+        {
+          id: 'cat-server-a',
+          name: 'Models',
+          selectionMode: 'single',
+          sortOrder: 0,
+          updatedAt: 100,
+          deletedAt: null,
+        },
+      ],
+      elements: [],
+      templates: [],
+    };
+    let serverSeq = 1;
+
+    const clientState: LocalWorkspaceState = {
+      ownerUserId: 'u1',
+      lastSyncedSeq: 0,
+      categories: [
+        {
+          id: 'cat-client-b',
+          name: 'Models',
+          selectionMode: 'single',
+          sortOrder: 0,
+          updatedAt: 200,
+          deletedAt: null,
+        },
+      ],
+      elements: [
+        {
+          id: 'el-1',
+          categoryId: 'cat-client-b',
+          label: 'E1',
+          value: 'V1',
+          sortOrder: 0,
+          updatedAt: 200,
+          deletedAt: null,
+        },
+        {
+          id: 'el-2',
+          categoryId: 'cat-client-b',
+          label: 'E2',
+          value: 'V2',
+          sortOrder: 1,
+          updatedAt: 200,
+          deletedAt: null,
+        },
+      ],
+      templates: [],
+      dirtyCategoryIds: ['cat-client-b'],
+      dirtyElementIds: ['el-1', 'el-2'],
+      dirtyTemplateIds: [],
+    };
+
+    const synced = await runSyncCycle(
+      clientState,
+      async (req) => {
+        const merged = mergeLibraries(serverSnapshot, req, 300, true);
+        serverSnapshot = merged.snapshot;
+        serverSeq += 1;
+        return {
+          serverSeq,
+          categories: serverSnapshot.categories,
+          elements: serverSnapshot.elements,
+          templates: serverSnapshot.templates,
+        };
+      },
+      2,
+    );
+
+    expect(synced.elements.filter((e) => e.deletedAt === null).map((e) => ({
+      id: e.id,
+      categoryId: e.categoryId,
+    }))).toEqual([
+      { id: 'el-1', categoryId: 'cat-server-a' },
+      { id: 'el-2', categoryId: 'cat-server-a' },
+    ]);
+  });
+
+  test('buildSyncChunks splits large multibyte records so each chunk stays below maxChunkBytes', () => {
+    const cjkValue = '漢'.repeat(10_000); // 30,000 UTF-8 bytes per element
+    const elements = Array.from({ length: 150 }, (_, i) => ({
+      id: `el-${i}`,
+      categoryId: 'c1',
+      label: `L${i}`,
+      value: cjkValue,
+      sortOrder: i,
+      updatedAt: 100,
+      deletedAt: null,
+    }));
+    const state: LocalWorkspaceState = {
+      ownerUserId: 'u1',
+      lastSyncedSeq: 0,
+      categories: [],
+      elements,
+      templates: [],
+      dirtyCategoryIds: [],
+      dirtyElementIds: elements.map((e) => e.id),
+      dirtyTemplateIds: [],
+    };
+
+    const chunks = buildSyncChunks(state, 500, DEFAULT_MAX_CHUNK_BYTES);
+    expect(chunks.map((c) => c.elements.length)).toEqual([116, 34]);
   });
 });
 
