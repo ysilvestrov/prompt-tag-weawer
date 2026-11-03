@@ -61,9 +61,9 @@
   - `deleteCategoryCascade(categoryId: string, deletedAt: number, categories: readonly Category[], elements: readonly PromptElement[]): { categories: Category[]; elements: PromptElement[] }`
   - `mergeLibraries(existing: LibrarySnapshot, incoming: LibrarySnapshot, now: number): MergeResult`
 
-- [ ] **Крок 1:** написати `tests/template-engine.test.ts` та `tests/merge.test.ts` (включно з повторними плейсхолдерами, регістронезалежним збігом, `single`/`multi`, порожніми `[]`, незакритими `[`, tie-breaker у LWW, каскадним tombstone для елементів видаленої категорії та канонізацією одноіменних категорій із переприв'язкою існуючих і вхідних елементів).
-- [ ] **Крок 2:** реалізувати `src/shared/template-engine.ts` та `src/shared/merge.ts`.
-- [ ] **Крок 3:** запустити гейт `npm test && npm run typecheck` і зробити коміт.
+- [x] **Крок 1:** написати `tests/template-engine.test.ts` та `tests/merge.test.ts` (включно з повторними плейсхолдерами, регістронезалежним збігом, `single`/`multi`, порожніми `[]`, незакритими `[`, tie-breaker у LWW, каскадним tombstone для елементів видаленої категорії та канонізацією одноіменних категорій із переприв'язкою існуючих і вхідних елементів).
+- [x] **Крок 2:** реалізувати `src/shared/template-engine.ts` та `src/shared/merge.ts`.
+- [x] **Крок 3:** запустити гейт `npm test && npm run typecheck` і зробити коміт.
 
 ---
 
