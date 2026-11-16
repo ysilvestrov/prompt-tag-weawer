@@ -316,6 +316,17 @@ describe('App UI: Generator, CRUD, Theme, and Unsynced Logout Guard', () => {
 
     fireEvent.change(screen.getByLabelText('Sort Models'), { target: { value: 'date-asc' } });
     expect(getModelLabels()).toEqual(['Kateryna K', 'Cyberpunk Android', 'Android Zeta']);
+
+    // Multi-select visual sorting must not alter canonical (sortOrder, id) prompt assembly
+    fireEvent.change(screen.getByLabelText('Sort Clothing'), { target: { value: 'alpha-desc' } });
+    const clothingContainer = screen.getByTestId('tag-elements-clothing');
+    const clothingLabels = Array.from(clothingContainer.querySelectorAll('button')).map(
+      (b) => b.textContent,
+    );
+    expect(clothingLabels).toEqual(['Neon Scarf', 'Leather Jacket']);
+    expect(screen.getByTestId('assembled-prompt').textContent).toBe(
+      'Portrait of , wearing black weathered leather jacket, translucent neon fiber scarf in , ',
+    );
   });
 
   test('Edit category jump scrolls to element editor, filters categories/elements, and supports multi-line textarea editing', async () => {
@@ -323,7 +334,12 @@ describe('App UI: Generator, CRUD, Theme, and Unsynced Logout Guard', () => {
     let counter = 0;
     const scrollSpy = vi.fn();
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-    HTMLElement.prototype.scrollIntoView = scrollSpy;
+    HTMLElement.prototype.scrollIntoView = function (
+      this: HTMLElement,
+      options?: boolean | ScrollIntoViewOptions,
+    ) {
+      scrollSpy(this.id, options);
+    };
 
     try {
       render(
@@ -344,7 +360,10 @@ describe('App UI: Generator, CRUD, Theme, and Unsynced Logout Guard', () => {
       expect(screen.getByText('Elements in “Clothing”').textContent).toBe('Elements in “Clothing”');
 
       await waitFor(() => {
-        expect(scrollSpy).toHaveBeenCalledTimes(1);
+        expect(scrollSpy).toHaveBeenCalledWith('selected-category-elements', {
+          behavior: 'smooth',
+          block: 'start',
+        });
       });
 
       // Filter categories list

@@ -865,7 +865,7 @@ export function App({
                                       [variable.normalizedName]: '',
                                     }))
                                   }
-                                  className="absolute right-1 top-1/2 -translate-y-1/2 min-h-10 min-w-10 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+                                  className="absolute right-0 top-1/2 -translate-y-1/2 min-h-12 min-w-12 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
                                 >
                                   ✕
                                 </button>
@@ -1021,7 +1021,7 @@ export function App({
                     type="button"
                     aria-label="Clear search categories"
                     onClick={() => setCategoryFilter('')}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 min-h-10 min-w-10 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 min-h-12 min-w-12 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
                   >
                     ✕
                   </button>
@@ -1054,7 +1054,7 @@ export function App({
                               aria-label="Edit category name"
                               value={editingCategoryName}
                               onChange={(e) => setEditingCategoryName(e.target.value)}
-                              className="flex-1 min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                              className="flex-1 min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
                             />
                             <select
                               aria-label="Edit category selection mode"
@@ -1062,7 +1062,7 @@ export function App({
                               onChange={(e) =>
                                 setEditingCategoryMode(e.target.value as SelectionMode)
                               }
-                              className="min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                              className="min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
                             >
                               <option value="single">Single</option>
                               <option value="multi">Multi</option>
@@ -1070,14 +1070,14 @@ export function App({
                             <button
                               type="button"
                               onClick={() => handleSaveCategoryEdit(cat.id)}
-                              className="min-h-10 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
+                              className="min-h-12 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
                             >
                               Save Category
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingCategoryId(null)}
-                              className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
+                              className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
                             >
                               Cancel
                             </button>
@@ -1090,7 +1090,7 @@ export function App({
                                 setSelectedCategoryId(cat.id);
                                 scrollToElementEditor();
                               }}
-                              className="text-left flex-1 min-h-10 flex items-center gap-2"
+                              className="text-left flex-1 min-h-12 flex items-center gap-2"
                             >
                               <span className="font-semibold text-sm">{cat.name}</span>
                               <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800">
@@ -1105,7 +1105,7 @@ export function App({
                                   setEditingCategoryName(cat.name);
                                   setEditingCategoryMode(cat.selectionMode);
                                 }}
-                                className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
+                                className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
                               >
                                 Edit
                               </button>
@@ -1113,7 +1113,7 @@ export function App({
                                 type="button"
                                 aria-label={`Delete category ${cat.name}`}
                                 onClick={() => handleDeleteCategory(cat.id)}
-                                className="min-h-10 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
+                                className="min-h-12 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
                               >
                                 Delete
                               </button>
@@ -1185,7 +1185,7 @@ export function App({
                       type="button"
                       aria-label="Clear search elements in category"
                       onClick={() => setElementFilter('')}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 min-h-10 min-w-10 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+                      className="absolute right-0 top-1/2 -translate-y-1/2 min-h-12 min-w-12 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
                     >
                       ✕
                     </button>
@@ -1215,7 +1215,7 @@ export function App({
                               aria-label="Edit element label"
                               value={editingElementLabel}
                               onChange={(e) => setEditingElementLabel(e.target.value)}
-                              className="w-full min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                              className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
                             />
                             <textarea
                               rows={3}
@@ -1228,14 +1228,14 @@ export function App({
                               <button
                                 type="button"
                                 onClick={() => handleSaveElementEdit(el.id)}
-                                className="min-h-10 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
+                                className="min-h-12 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
                               >
                                 Save Element
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setEditingElementId(null)}
-                                className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
+                                className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
                               >
                                 Cancel
                               </button>
@@ -1257,7 +1257,7 @@ export function App({
                                 setEditingElementLabel(el.label);
                                 setEditingElementValue(el.value);
                               }}
-                              className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
+                              className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
                             >
                               Edit
                             </button>
@@ -1265,7 +1265,7 @@ export function App({
                               type="button"
                               aria-label={`Delete element ${el.label}`}
                               onClick={() => handleDeleteElement(el.id)}
-                              className="min-h-10 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
+                              className="min-h-12 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
                             >
                               Delete
                             </button>
