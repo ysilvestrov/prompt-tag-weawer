@@ -39,6 +39,12 @@ import {
   saveThemeMode,
   type ThemeMode,
 } from './theme.ts';
+import {
+  type ElementSortMode,
+  filterCategories,
+  filterElements,
+  sortElements,
+} from './tag-controls.ts';
 
 export type ActiveTab = 'generator' | 'categories' | 'templates';
 
@@ -93,6 +99,24 @@ export function App({
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [freeText, setFreeText] = useState<Record<string, string>>({});
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+  const [tagSearch, setTagSearch] = useState<Record<string, string>>({});
+  const [tagCollapsed, setTagCollapsed] = useState<Record<string, boolean>>({});
+  const [tagSort, setTagSort] = useState<Record<string, ElementSortMode>>({});
+
+  const scrollToElementEditor = () => {
+    setTimeout(() => {
+      const el = document.getElementById('selected-category-elements');
+      if (el !== null && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 50);
+  };
+
+  const navigateToCategory = (categoryId: string) => {
+    setActiveTab('categories');
+    setSelectedCategoryId(categoryId);
+    scrollToElementEditor();
+  };
 
   // Categories & Elements CRUD state
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
@@ -104,6 +128,8 @@ export function App({
   const [editingCategoryName, setEditingCategoryName] = useState('');
   const [editingCategoryMode, setEditingCategoryMode] = useState<SelectionMode>('single');
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [elementFilter, setElementFilter] = useState('');
 
   const [newElementLabel, setNewElementLabel] = useState('');
   const [newElementValue, setNewElementValue] = useState('');
@@ -721,72 +747,192 @@ export function App({
             {/* Dynamic Variable Controls */}
             {currentTemplate !== null && (
               <div className="space-y-4">
-                {resolvedVariables.map((variable) => (
-                  <div
-                    key={variable.normalizedName}
-                    className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">[{variable.rawName}]</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {variable.kind === 'category'
-                          ? `${variable.selectionMode === 'single' ? 'Single' : 'Multi'} select`
-                          : 'Free text'}
-                      </span>
-                    </div>
+                {resolvedVariables.map((variable) => {
+                  const searchQuery = tagSearch[variable.normalizedName] ?? '';
+                  const isCollapsed = tagCollapsed[variable.normalizedName] ?? false;
+                  const sortMode = tagSort[variable.normalizedName] ?? 'default';
+                  const visibleElements =
+                    variable.kind === 'category'
+                      ? sortElements(filterElements(variable.elements, searchQuery), sortMode)
+                      : [];
 
-                    {variable.kind === 'category' ? (
-                      variable.elements.length === 0 ? (
-                        <p className="text-xs text-slate-500">
-                          No elements in category &ldquo;{variable.categoryName}&rdquo; yet.
-                        </p>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {variable.elements.map((el) => {
-                            const isSelected = (
-                              selections[variable.normalizedName] ?? []
-                            ).includes(el.id);
-                            return (
-                              <button
-                                key={el.id}
-                                type="button"
-                                aria-pressed={isSelected}
-                                onClick={() =>
-                                  toggleElementSelection(
-                                    variable.normalizedName,
-                                    el.id,
-                                    variable.selectionMode,
-                                  )
-                                }
-                                className={`min-h-12 px-4 py-2 rounded-xl text-sm font-medium transition border ${
-                                  isSelected
-                                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
-                                    : 'bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-sky-400'
-                                }`}
-                              >
-                                {el.label}
-                              </button>
-                            );
-                          })}
+                  return (
+                    <div
+                      key={variable.normalizedName}
+                      className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold">[{variable.rawName}]</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            {variable.kind === 'category'
+                              ? `${variable.selectionMode === 'single' ? 'Single' : 'Multi'} select`
+                              : 'Free text'}
+                          </span>
                         </div>
-                      )
-                    ) : (
-                      <input
-                        type="text"
-                        aria-label={`Free text for ${variable.rawName}`}
-                        placeholder={`Enter value for [${variable.rawName}]...`}
-                        value={freeText[variable.normalizedName] ?? ''}
-                        onChange={(e) =>
-                          setFreeText((prev) => ({
-                            ...prev,
-                            [variable.normalizedName]: e.target.value,
-                          }))
-                        }
-                        className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
-                      />
-                    )}
-                  </div>
-                ))}
+
+                        {variable.kind === 'category' && (
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              aria-label={`Sort ${variable.rawName}`}
+                              value={sortMode}
+                              onChange={(e) =>
+                                setTagSort((prev) => ({
+                                  ...prev,
+                                  [variable.normalizedName]: e.target.value as ElementSortMode,
+                                }))
+                              }
+                              className="min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-2 text-xs font-medium"
+                            >
+                              <option value="default">Default</option>
+                              <option value="alpha-asc">A → Z</option>
+                              <option value="alpha-desc">Z → A</option>
+                              <option value="date-desc">Newest</option>
+                              <option value="date-asc">Oldest</option>
+                            </select>
+
+                            <button
+                              type="button"
+                              aria-label={
+                                isCollapsed
+                                  ? `Expand ${variable.rawName}`
+                                  : `Collapse ${variable.rawName}`
+                              }
+                              aria-expanded={!isCollapsed}
+                              title={isCollapsed ? 'Expand' : 'Collapse to one line'}
+                              onClick={() =>
+                                setTagCollapsed((prev) => ({
+                                  ...prev,
+                                  [variable.normalizedName]: !isCollapsed,
+                                }))
+                              }
+                              className="min-h-12 min-w-12 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:border-sky-400"
+                            >
+                              <svg
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                className={`w-4 h-4 transition-transform ${isCollapsed ? 'rotate-180' : ''}`}
+                                aria-hidden="true"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M14.77 12.79a.75.75 0 01-1.06-.02L10 8.832 6.29 12.77a.75.75 0 11-1.08-1.04l4.25-4.5a.75.75 0 011.08 0l4.25 4.5a.75.75 0 01-.02 1.06z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </button>
+
+                            <button
+                              type="button"
+                              aria-label={`Edit category ${variable.rawName}`}
+                              onClick={() => navigateToCategory(variable.categoryId)}
+                              className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-sky-400"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {variable.kind === 'category' ? (
+                        variable.elements.length === 0 ? (
+                          <p className="text-xs text-slate-500">
+                            No elements in category &ldquo;{variable.categoryName}&rdquo; yet.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                aria-label={`Search ${variable.rawName}`}
+                                placeholder="Search elements..."
+                                value={searchQuery}
+                                onChange={(e) =>
+                                  setTagSearch((prev) => ({
+                                    ...prev,
+                                    [variable.normalizedName]: e.target.value,
+                                  }))
+                                }
+                                className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 pr-12 text-sm"
+                              />
+                              {searchQuery.length > 0 && (
+                                <button
+                                  type="button"
+                                  aria-label={`Clear search ${variable.rawName}`}
+                                  onClick={() =>
+                                    setTagSearch((prev) => ({
+                                      ...prev,
+                                      [variable.normalizedName]: '',
+                                    }))
+                                  }
+                                  className="absolute right-0 top-1/2 -translate-y-1/2 min-h-12 min-w-12 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+
+                            {visibleElements.length === 0 ? (
+                              <p className="text-xs text-slate-500">No matching elements.</p>
+                            ) : (
+                              <div
+                                data-testid={`tag-elements-${variable.normalizedName}`}
+                                className={
+                                  isCollapsed
+                                    ? 'flex flex-nowrap overflow-x-auto py-1 gap-2'
+                                    : 'flex flex-wrap gap-2'
+                                }
+                              >
+                                {visibleElements.map((el) => {
+                                  const isSelected = (
+                                    selections[variable.normalizedName] ?? []
+                                  ).includes(el.id);
+                                  return (
+                                    <button
+                                      key={el.id}
+                                      type="button"
+                                      aria-pressed={isSelected}
+                                      onClick={() =>
+                                        toggleElementSelection(
+                                          variable.normalizedName,
+                                          el.id,
+                                          variable.selectionMode,
+                                        )
+                                      }
+                                      className={`min-h-12 px-4 py-2 rounded-xl text-sm font-medium transition border ${
+                                        isCollapsed ? 'shrink-0 whitespace-nowrap ' : ''
+                                      }${
+                                        isSelected
+                                          ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                                          : 'bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-sky-400'
+                                      }`}
+                                    >
+                                      {el.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </>
+                        )
+                      ) : (
+                        <input
+                          type="text"
+                          aria-label={`Free text for ${variable.rawName}`}
+                          placeholder={`Enter value for [${variable.rawName}]...`}
+                          value={freeText[variable.normalizedName] ?? ''}
+                          onChange={(e) =>
+                            setFreeText((prev) => ({
+                              ...prev,
+                              [variable.normalizedName]: e.target.value,
+                            }))
+                          }
+                          className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -861,98 +1007,132 @@ export function App({
             {/* Category List */}
             <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-3">
               <h2 className="text-sm font-bold">Categories</h2>
+              <div className="relative">
+                <input
+                  type="text"
+                  aria-label="Search categories"
+                  placeholder="Search categories..."
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 pr-12 text-sm"
+                />
+                {categoryFilter.length > 0 && (
+                  <button
+                    type="button"
+                    aria-label="Clear search categories"
+                    onClick={() => setCategoryFilter('')}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 min-h-12 min-w-12 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               <div className="space-y-2">
-                {activeCategories.map((cat) => {
-                  const isCurrent = cat.id === effectiveSelectedCategoryId;
-                  const isEditing = editingCategoryId === cat.id;
-                  return (
-                    <div
-                      key={cat.id}
-                      className={`p-3 rounded-lg border ${
-                        isCurrent
-                          ? 'border-sky-500 bg-sky-50/40 dark:bg-sky-950/20'
-                          : 'border-slate-200 dark:border-slate-800'
-                      }`}
-                    >
-                      {isEditing ? (
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <input
-                            type="text"
-                            aria-label="Edit category name"
-                            value={editingCategoryName}
-                            onChange={(e) => setEditingCategoryName(e.target.value)}
-                            className="flex-1 min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
-                          />
-                          <select
-                            aria-label="Edit category selection mode"
-                            value={editingCategoryMode}
-                            onChange={(e) =>
-                              setEditingCategoryMode(e.target.value as SelectionMode)
-                            }
-                            className="min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
-                          >
-                            <option value="single">Single</option>
-                            <option value="multi">Multi</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveCategoryEdit(cat.id)}
-                            className="min-h-10 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
-                          >
-                            Save Category
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingCategoryId(null)}
-                            className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedCategoryId(cat.id)}
-                            className="text-left flex-1 min-h-10 flex items-center gap-2"
-                          >
-                            <span className="font-semibold text-sm">{cat.name}</span>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800">
-                              {cat.selectionMode}
-                            </span>
-                          </button>
-                          <div className="flex items-center gap-2">
+                {(() => {
+                  const visibleCategories = filterCategories(activeCategories, categoryFilter);
+                  if (visibleCategories.length === 0) {
+                    return (
+                      <p className="text-xs text-slate-500">No matching categories.</p>
+                    );
+                  }
+                  return visibleCategories.map((cat) => {
+                    const isCurrent = cat.id === effectiveSelectedCategoryId;
+                    const isEditing = editingCategoryId === cat.id;
+                    return (
+                      <div
+                        key={cat.id}
+                        className={`p-3 rounded-lg border ${
+                          isCurrent
+                            ? 'border-sky-500 bg-sky-50/40 dark:bg-sky-950/20'
+                            : 'border-slate-200 dark:border-slate-800'
+                        }`}
+                      >
+                        {isEditing ? (
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="text"
+                              aria-label="Edit category name"
+                              value={editingCategoryName}
+                              onChange={(e) => setEditingCategoryName(e.target.value)}
+                              className="flex-1 min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                            />
+                            <select
+                              aria-label="Edit category selection mode"
+                              value={editingCategoryMode}
+                              onChange={(e) =>
+                                setEditingCategoryMode(e.target.value as SelectionMode)
+                              }
+                              className="min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                            >
+                              <option value="single">Single</option>
+                              <option value="multi">Multi</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveCategoryEdit(cat.id)}
+                              className="min-h-12 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
+                            >
+                              Save Category
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCategoryId(null)}
+                              className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <button
                               type="button"
                               onClick={() => {
-                                setEditingCategoryId(cat.id);
-                                setEditingCategoryName(cat.name);
-                                setEditingCategoryMode(cat.selectionMode);
+                                setSelectedCategoryId(cat.id);
+                                scrollToElementEditor();
                               }}
-                              className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
+                              className="text-left flex-1 min-h-12 flex items-center gap-2"
                             >
-                              Edit
+                              <span className="font-semibold text-sm">{cat.name}</span>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800">
+                                {cat.selectionMode}
+                              </span>
                             </button>
-                            <button
-                              type="button"
-                              aria-label={`Delete category ${cat.name}`}
-                              onClick={() => handleDeleteCategory(cat.id)}
-                              className="min-h-10 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
-                            >
-                              Delete
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCategoryId(cat.id);
+                                  setEditingCategoryName(cat.name);
+                                  setEditingCategoryMode(cat.selectionMode);
+                                }}
+                                className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Delete category ${cat.name}`}
+                                onClick={() => handleDeleteCategory(cat.id)}
+                                className="min-h-12 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
 
             {/* Elements for Selected Category */}
             {effectiveSelectedCategoryId !== '' && (
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div
+                id="selected-category-elements"
+                className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-4"
+              >
                 <h2 className="text-sm font-bold">
                   Elements in &ldquo;
                   {activeCategories.find((c) => c.id === effectiveSelectedCategoryId)?.name}
@@ -965,22 +1145,22 @@ export function App({
                 )}
 
                 <form onSubmit={handleAddElement} className="space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="space-y-2">
                     <input
                       type="text"
                       aria-label="New element label"
                       placeholder="Button label (e.g. Golden Hour)"
                       value={newElementLabel}
                       onChange={(e) => setNewElementLabel(e.target.value)}
-                      className="min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
+                      className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
                     />
-                    <input
-                      type="text"
+                    <textarea
+                      rows={3}
                       aria-label="New element value"
                       placeholder="Prompt value (e.g. warm golden hour sunlight)"
                       value={newElementValue}
                       onChange={(e) => setNewElementValue(e.target.value)}
-                      className="min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
+                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 text-sm"
                     />
                   </div>
                   <button
@@ -991,54 +1171,85 @@ export function App({
                   </button>
                 </form>
 
-                <div className="space-y-2">
-                  {selectedCategoryElements.map((el) => (
-                    <div
-                      key={el.id}
-                      className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2"
+                <div className="relative">
+                  <input
+                    type="text"
+                    aria-label="Search elements in category"
+                    placeholder="Search elements in category..."
+                    value={elementFilter}
+                    onChange={(e) => setElementFilter(e.target.value)}
+                    className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 pr-12 text-sm"
+                  />
+                  {elementFilter.length > 0 && (
+                    <button
+                      type="button"
+                      aria-label="Clear search elements in category"
+                      onClick={() => setElementFilter('')}
+                      className="absolute right-0 top-1/2 -translate-y-1/2 min-h-12 min-w-12 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
                     >
-                      {editingElementId === el.id ? (
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            aria-label="Edit element label"
-                            value={editingElementLabel}
-                            onChange={(e) => setEditingElementLabel(e.target.value)}
-                            className="w-full min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
-                          />
-                          <input
-                            type="text"
-                            aria-label="Edit element value"
-                            value={editingElementValue}
-                            onChange={(e) => setEditingElementValue(e.target.value)}
-                            className="w-full min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveElementEdit(el.id)}
-                              className="min-h-10 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
-                            >
-                              Save Element
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingElementId(null)}
-                              className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="font-semibold text-sm">{el.label}</div>
-                            <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                              {el.value}
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  {(() => {
+                    const visibleCategoryElements = filterElements(
+                      selectedCategoryElements,
+                      elementFilter,
+                    );
+                    if (visibleCategoryElements.length === 0) {
+                      return (
+                        <p className="text-xs text-slate-500">No matching elements.</p>
+                      );
+                    }
+                    return visibleCategoryElements.map((el) => (
+                      <div
+                        key={el.id}
+                        className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2"
+                      >
+                        {editingElementId === el.id ? (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              aria-label="Edit element label"
+                              value={editingElementLabel}
+                              onChange={(e) => setEditingElementLabel(e.target.value)}
+                              className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                            />
+                            <textarea
+                              rows={3}
+                              aria-label="Edit element value"
+                              value={editingElementValue}
+                              onChange={(e) => setEditingElementValue(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-700 p-2 text-sm bg-white dark:bg-slate-950"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveElementEdit(el.id)}
+                                className="min-h-12 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
+                              >
+                                Save Element
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingElementId(null)}
+                                className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
+                              >
+                                Cancel
+                              </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-sm">{el.label}</div>
+                              <div className="text-xs font-mono text-slate-500 dark:text-slate-400 whitespace-pre-wrap break-words">
+                                {el.value}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={() => {
@@ -1046,7 +1257,7 @@ export function App({
                                 setEditingElementLabel(el.label);
                                 setEditingElementValue(el.value);
                               }}
-                              className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
+                              className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
                             >
                               Edit
                             </button>
@@ -1054,7 +1265,7 @@ export function App({
                               type="button"
                               aria-label={`Delete element ${el.label}`}
                               onClick={() => handleDeleteElement(el.id)}
-                              className="min-h-10 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
+                              className="min-h-12 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
                             >
                               Delete
                             </button>
@@ -1062,7 +1273,8 @@ export function App({
                         </div>
                       )}
                     </div>
-                  ))}
+                  ));
+                  })()}
                 </div>
               </div>
             )}

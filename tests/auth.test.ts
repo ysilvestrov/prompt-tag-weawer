@@ -11,6 +11,7 @@ import {
   verifyGoogleIdToken,
 } from '../src/server/auth.ts';
 import { createDatabase } from '../src/server/db.ts';
+import { PWA_WORKBOX_CONFIG } from '../vite.config.ts';
 
 const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const testJwk = {
@@ -240,5 +241,17 @@ describe('Google OAuth 2.0 Fastify flow', () => {
 
     await app.close();
     db.close();
+  });
+
+  test('PWA Workbox navigateFallbackDenylist excludes /api/ routes from SPA index.html interception', () => {
+    expect(
+      PWA_WORKBOX_CONFIG.navigateFallbackDenylist.some((re) => re.test('/api/auth/google')),
+    ).toBe(true);
+    expect(
+      PWA_WORKBOX_CONFIG.navigateFallbackDenylist.some((re) =>
+        re.test('/api/auth/google/callback?code=1&state=2'),
+      ),
+    ).toBe(true);
+    expect(PWA_WORKBOX_CONFIG.navigateFallbackDenylist.some((re) => re.test('/'))).toBe(false);
   });
 });

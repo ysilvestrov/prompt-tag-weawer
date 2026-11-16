@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+export const PWA_WORKBOX_CONFIG = {
+  globPatterns: ['**/*.{js,css,html,svg}'],
+  navigateFallbackDenylist: [/^\/api\//],
+};
+
 export default defineConfig({
   plugins: [
     react(),
@@ -27,9 +32,7 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg}'],
-      },
+      workbox: PWA_WORKBOX_CONFIG,
     }),
   ],
   server: {
