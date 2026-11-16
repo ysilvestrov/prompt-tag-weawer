@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { App } from '../src/client/App.tsx';
 import { createInitialGuestState, saveWorkspaceState } from '../src/client/storage.ts';
 import { SEED_IDS } from '../src/shared/seed.ts';
@@ -243,5 +243,155 @@ describe('App UI: Generator, CRUD, Theme, and Unsynced Logout Guard', () => {
       expect(screen.getByTestId('auth-status-badge').textContent).toBe('Offline Guest Mode');
     });
     expect(storage.getItem('ptw_workspace_v1')?.includes('LeakedServerCat')).toBe(false);
+  });
+
+  test('Generator tag controls: search preserves selections, collapse toggles 1-line strip, and sort reorders display without altering prompt order', () => {
+    const storage = createMemoryStorage();
+    const state = createInitialGuestState();
+    state.elements.push({
+      id: 'el-new-model',
+      categoryId: SEED_IDS.categories.models,
+      label: 'Android Zeta',
+      value: 'zeta android',
+      sortOrder: 2,
+      updatedAt: 5000,
+      deletedAt: null,
+    });
+    saveWorkspaceState(storage, state);
+
+    render(<App storage={storage} fetchFn={offlineFetch} nowFn={() => 6000} />);
+
+    // 1. Search filter in Clothing preserves previously selected element
+    fireEvent.click(screen.getByRole('button', { name: 'Leather Jacket' }));
+    fireEvent.change(screen.getByLabelText('Search Clothing'), {
+      target: { value: 'scarf' },
+    });
+    expect(screen.queryByRole('button', { name: 'Leather Jacket' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Neon Scarf' }).textContent).toBe('Neon Scarf');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Neon Scarf' }));
+    expect(screen.getByTestId('assembled-prompt').textContent).toBe(
+      'Portrait of , wearing black weathered leather jacket, translucent neon fiber scarf in , ',
+    );
+
+    // No-match state & clear search
+    fireEvent.change(screen.getByLabelText('Search Clothing'), {
+      target: { value: 'does-not-exist' },
+    });
+    expect(screen.getByText('No matching elements.').textContent).toBe('No matching elements.');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search Clothing' }));
+    expect(screen.getByRole('button', { name: 'Leather Jacket' }).textContent).toBe('Leather Jacket');
+
+    // 2. Collapse / Expand toggle for Models
+    const collapseBtn = screen.getByRole('button', { name: 'Collapse Models' });
+    expect(collapseBtn.getAttribute('aria-expanded')).toBe('true');
+    const modelsContainer = screen.getByTestId('tag-elements-models');
+    expect(modelsContainer.className).toContain('flex-wrap');
+
+    fireEvent.click(collapseBtn);
+    const expandBtn = screen.getByRole('button', { name: 'Expand Models' });
+    expect(expandBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(modelsContainer.className).toContain('flex-nowrap overflow-x-auto');
+    expect(screen.getByRole('button', { name: 'Kateryna K' }).className).toContain(
+      'shrink-0 whitespace-nowrap',
+    );
+
+    fireEvent.click(expandBtn);
+    expect(modelsContainer.className).toContain('flex-wrap');
+
+    // 3. Sort modes for Models
+    const getModelLabels = () =>
+      Array.from(modelsContainer.querySelectorAll('button')).map((b) => b.textContent);
+
+    expect(getModelLabels()).toEqual(['Kateryna K', 'Cyberpunk Android', 'Android Zeta']);
+
+    fireEvent.change(screen.getByLabelText('Sort Models'), { target: { value: 'alpha-asc' } });
+    expect(getModelLabels()).toEqual(['Android Zeta', 'Cyberpunk Android', 'Kateryna K']);
+
+    fireEvent.change(screen.getByLabelText('Sort Models'), { target: { value: 'alpha-desc' } });
+    expect(getModelLabels()).toEqual(['Kateryna K', 'Cyberpunk Android', 'Android Zeta']);
+
+    fireEvent.change(screen.getByLabelText('Sort Models'), { target: { value: 'date-desc' } });
+    expect(getModelLabels()).toEqual(['Android Zeta', 'Kateryna K', 'Cyberpunk Android']);
+
+    fireEvent.change(screen.getByLabelText('Sort Models'), { target: { value: 'date-asc' } });
+    expect(getModelLabels()).toEqual(['Kateryna K', 'Cyberpunk Android', 'Android Zeta']);
+  });
+
+  test('Edit category jump scrolls to element editor, filters categories/elements, and supports multi-line textarea editing', async () => {
+    const storage = createMemoryStorage();
+    let counter = 0;
+    const scrollSpy = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollSpy;
+
+    try {
+      render(
+        <App
+          storage={storage}
+          fetchFn={offlineFetch}
+          nowFn={() => 7000}
+          idFn={() => {
+            counter += 1;
+            return `harness-id-${counter}`;
+          }}
+        />,
+      );
+
+      // Jump from Generator's [Clothing] card to Categories & Elements
+      fireEvent.click(screen.getByRole('button', { name: 'Edit category Clothing' }));
+
+      expect(screen.getByText('Elements in “Clothing”').textContent).toBe('Elements in “Clothing”');
+
+      await waitFor(() => {
+        expect(scrollSpy).toHaveBeenCalledTimes(1);
+      });
+
+      // Filter categories list
+      fireEvent.change(screen.getByLabelText('Search categories'), {
+        target: { value: 'Scen' },
+      });
+      expect(screen.getByRole('button', { name: /^Scenes/ }).textContent).toContain('Scenes');
+      expect(screen.queryByRole('button', { name: /^Clothing/ })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Clear search categories' }));
+      expect(screen.getByRole('button', { name: /^Clothing/ }).textContent).toContain('Clothing');
+
+      // Add multi-line element via textarea
+      const newValueInput = screen.getByLabelText('New element value');
+      expect(newValueInput.tagName).toBe('TEXTAREA');
+      fireEvent.change(screen.getByLabelText('New element label'), {
+        target: { value: 'MultiLine Suit' },
+      });
+      fireEvent.change(newValueInput, {
+        target: { value: 'line one\nline two' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Add Element' }));
+
+      expect(screen.getByText('MultiLine Suit').textContent).toBe('MultiLine Suit');
+      expect(screen.getByText(/line one\s+line two/).textContent).toBe('line one\nline two');
+
+      // Filter elements inside category
+      fireEvent.change(screen.getByLabelText('Search elements in category'), {
+        target: { value: 'MultiLine' },
+      });
+      expect(screen.getByText('MultiLine Suit').textContent).toBe('MultiLine Suit');
+      expect(screen.queryByText('Leather Jacket')).toBeNull();
+
+      // Edit multi-line element via textarea
+      const editButtons = screen.getAllByRole('button', { name: 'Edit' });
+      fireEvent.click(editButtons[editButtons.length - 1]!);
+      const editValueInput = screen.getByLabelText('Edit element value');
+      expect(editValueInput.tagName).toBe('TEXTAREA');
+      fireEvent.change(editValueInput, {
+        target: { value: 'updated line 1\nupdated line 2' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save Element' }));
+
+      expect(screen.getByText(/updated line 1\s+updated line 2/).textContent).toBe(
+        'updated line 1\nupdated line 2',
+      );
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 });
