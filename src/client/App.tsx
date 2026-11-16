@@ -39,6 +39,12 @@ import {
   saveThemeMode,
   type ThemeMode,
 } from './theme.ts';
+import {
+  type ElementSortMode,
+  filterCategories,
+  filterElements,
+  sortElements,
+} from './tag-controls.ts';
 
 export type ActiveTab = 'generator' | 'categories' | 'templates';
 
@@ -93,6 +99,24 @@ export function App({
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [freeText, setFreeText] = useState<Record<string, string>>({});
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+  const [tagSearch, setTagSearch] = useState<Record<string, string>>({});
+  const [tagCollapsed, setTagCollapsed] = useState<Record<string, boolean>>({});
+  const [tagSort, setTagSort] = useState<Record<string, ElementSortMode>>({});
+
+  const scrollToElementEditor = () => {
+    setTimeout(() => {
+      const el = document.getElementById('selected-category-elements');
+      if (el !== null && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 50);
+  };
+
+  const navigateToCategory = (categoryId: string) => {
+    setActiveTab('categories');
+    setSelectedCategoryId(categoryId);
+    scrollToElementEditor();
+  };
 
   // Categories & Elements CRUD state
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
@@ -721,72 +745,192 @@ export function App({
             {/* Dynamic Variable Controls */}
             {currentTemplate !== null && (
               <div className="space-y-4">
-                {resolvedVariables.map((variable) => (
-                  <div
-                    key={variable.normalizedName}
-                    className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">[{variable.rawName}]</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {variable.kind === 'category'
-                          ? `${variable.selectionMode === 'single' ? 'Single' : 'Multi'} select`
-                          : 'Free text'}
-                      </span>
-                    </div>
+                {resolvedVariables.map((variable) => {
+                  const searchQuery = tagSearch[variable.normalizedName] ?? '';
+                  const isCollapsed = tagCollapsed[variable.normalizedName] ?? false;
+                  const sortMode = tagSort[variable.normalizedName] ?? 'default';
+                  const visibleElements =
+                    variable.kind === 'category'
+                      ? sortElements(filterElements(variable.elements, searchQuery), sortMode)
+                      : [];
 
-                    {variable.kind === 'category' ? (
-                      variable.elements.length === 0 ? (
-                        <p className="text-xs text-slate-500">
-                          No elements in category &ldquo;{variable.categoryName}&rdquo; yet.
-                        </p>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {variable.elements.map((el) => {
-                            const isSelected = (
-                              selections[variable.normalizedName] ?? []
-                            ).includes(el.id);
-                            return (
-                              <button
-                                key={el.id}
-                                type="button"
-                                aria-pressed={isSelected}
-                                onClick={() =>
-                                  toggleElementSelection(
-                                    variable.normalizedName,
-                                    el.id,
-                                    variable.selectionMode,
-                                  )
-                                }
-                                className={`min-h-12 px-4 py-2 rounded-xl text-sm font-medium transition border ${
-                                  isSelected
-                                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
-                                    : 'bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-sky-400'
-                                }`}
-                              >
-                                {el.label}
-                              </button>
-                            );
-                          })}
+                  return (
+                    <div
+                      key={variable.normalizedName}
+                      className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold">[{variable.rawName}]</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            {variable.kind === 'category'
+                              ? `${variable.selectionMode === 'single' ? 'Single' : 'Multi'} select`
+                              : 'Free text'}
+                          </span>
                         </div>
-                      )
-                    ) : (
-                      <input
-                        type="text"
-                        aria-label={`Free text for ${variable.rawName}`}
-                        placeholder={`Enter value for [${variable.rawName}]...`}
-                        value={freeText[variable.normalizedName] ?? ''}
-                        onChange={(e) =>
-                          setFreeText((prev) => ({
-                            ...prev,
-                            [variable.normalizedName]: e.target.value,
-                          }))
-                        }
-                        className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
-                      />
-                    )}
-                  </div>
-                ))}
+
+                        {variable.kind === 'category' && (
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              aria-label={`Sort ${variable.rawName}`}
+                              value={sortMode}
+                              onChange={(e) =>
+                                setTagSort((prev) => ({
+                                  ...prev,
+                                  [variable.normalizedName]: e.target.value as ElementSortMode,
+                                }))
+                              }
+                              className="min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-2 text-xs font-medium"
+                            >
+                              <option value="default">Default</option>
+                              <option value="alpha-asc">A → Z</option>
+                              <option value="alpha-desc">Z → A</option>
+                              <option value="date-desc">Newest</option>
+                              <option value="date-asc">Oldest</option>
+                            </select>
+
+                            <button
+                              type="button"
+                              aria-label={
+                                isCollapsed
+                                  ? `Expand ${variable.rawName}`
+                                  : `Collapse ${variable.rawName}`
+                              }
+                              aria-expanded={!isCollapsed}
+                              title={isCollapsed ? 'Expand' : 'Collapse to one line'}
+                              onClick={() =>
+                                setTagCollapsed((prev) => ({
+                                  ...prev,
+                                  [variable.normalizedName]: !isCollapsed,
+                                }))
+                              }
+                              className="min-h-12 min-w-12 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:border-sky-400"
+                            >
+                              <svg
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                className={`w-4 h-4 transition-transform ${isCollapsed ? 'rotate-180' : ''}`}
+                                aria-hidden="true"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M14.77 12.79a.75.75 0 01-1.06-.02L10 8.832 6.29 12.77a.75.75 0 11-1.08-1.04l4.25-4.5a.75.75 0 011.08 0l4.25 4.5a.75.75 0 01-.02 1.06z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </button>
+
+                            <button
+                              type="button"
+                              aria-label={`Edit category ${variable.rawName}`}
+                              onClick={() => navigateToCategory(variable.categoryId)}
+                              className="min-h-12 px-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-sky-400"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {variable.kind === 'category' ? (
+                        variable.elements.length === 0 ? (
+                          <p className="text-xs text-slate-500">
+                            No elements in category &ldquo;{variable.categoryName}&rdquo; yet.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                aria-label={`Search ${variable.rawName}`}
+                                placeholder="Search elements..."
+                                value={searchQuery}
+                                onChange={(e) =>
+                                  setTagSearch((prev) => ({
+                                    ...prev,
+                                    [variable.normalizedName]: e.target.value,
+                                  }))
+                                }
+                                className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 pr-12 text-sm"
+                              />
+                              {searchQuery.length > 0 && (
+                                <button
+                                  type="button"
+                                  aria-label={`Clear search ${variable.rawName}`}
+                                  onClick={() =>
+                                    setTagSearch((prev) => ({
+                                      ...prev,
+                                      [variable.normalizedName]: '',
+                                    }))
+                                  }
+                                  className="absolute right-1 top-1/2 -translate-y-1/2 min-h-10 min-w-10 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+
+                            {visibleElements.length === 0 ? (
+                              <p className="text-xs text-slate-500">No matching elements.</p>
+                            ) : (
+                              <div
+                                data-testid={`tag-elements-${variable.normalizedName}`}
+                                className={
+                                  isCollapsed
+                                    ? 'flex flex-nowrap overflow-x-auto py-1 gap-2'
+                                    : 'flex flex-wrap gap-2'
+                                }
+                              >
+                                {visibleElements.map((el) => {
+                                  const isSelected = (
+                                    selections[variable.normalizedName] ?? []
+                                  ).includes(el.id);
+                                  return (
+                                    <button
+                                      key={el.id}
+                                      type="button"
+                                      aria-pressed={isSelected}
+                                      onClick={() =>
+                                        toggleElementSelection(
+                                          variable.normalizedName,
+                                          el.id,
+                                          variable.selectionMode,
+                                        )
+                                      }
+                                      className={`min-h-12 px-4 py-2 rounded-xl text-sm font-medium transition border ${
+                                        isCollapsed ? 'shrink-0 whitespace-nowrap ' : ''
+                                      }${
+                                        isSelected
+                                          ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                                          : 'bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-sky-400'
+                                      }`}
+                                    >
+                                      {el.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </>
+                        )
+                      ) : (
+                        <input
+                          type="text"
+                          aria-label={`Free text for ${variable.rawName}`}
+                          placeholder={`Enter value for [${variable.rawName}]...`}
+                          value={freeText[variable.normalizedName] ?? ''}
+                          onChange={(e) =>
+                            setFreeText((prev) => ({
+                              ...prev,
+                              [variable.normalizedName]: e.target.value,
+                            }))
+                          }
+                          className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
