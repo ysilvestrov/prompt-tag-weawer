@@ -128,6 +128,8 @@ export function App({
   const [editingCategoryName, setEditingCategoryName] = useState('');
   const [editingCategoryMode, setEditingCategoryMode] = useState<SelectionMode>('single');
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [elementFilter, setElementFilter] = useState('');
 
   const [newElementLabel, setNewElementLabel] = useState('');
   const [newElementValue, setNewElementValue] = useState('');
@@ -1005,98 +1007,132 @@ export function App({
             {/* Category List */}
             <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-3">
               <h2 className="text-sm font-bold">Categories</h2>
+              <div className="relative">
+                <input
+                  type="text"
+                  aria-label="Search categories"
+                  placeholder="Search categories..."
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 pr-12 text-sm"
+                />
+                {categoryFilter.length > 0 && (
+                  <button
+                    type="button"
+                    aria-label="Clear search categories"
+                    onClick={() => setCategoryFilter('')}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 min-h-10 min-w-10 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               <div className="space-y-2">
-                {activeCategories.map((cat) => {
-                  const isCurrent = cat.id === effectiveSelectedCategoryId;
-                  const isEditing = editingCategoryId === cat.id;
-                  return (
-                    <div
-                      key={cat.id}
-                      className={`p-3 rounded-lg border ${
-                        isCurrent
-                          ? 'border-sky-500 bg-sky-50/40 dark:bg-sky-950/20'
-                          : 'border-slate-200 dark:border-slate-800'
-                      }`}
-                    >
-                      {isEditing ? (
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <input
-                            type="text"
-                            aria-label="Edit category name"
-                            value={editingCategoryName}
-                            onChange={(e) => setEditingCategoryName(e.target.value)}
-                            className="flex-1 min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
-                          />
-                          <select
-                            aria-label="Edit category selection mode"
-                            value={editingCategoryMode}
-                            onChange={(e) =>
-                              setEditingCategoryMode(e.target.value as SelectionMode)
-                            }
-                            className="min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
-                          >
-                            <option value="single">Single</option>
-                            <option value="multi">Multi</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveCategoryEdit(cat.id)}
-                            className="min-h-10 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
-                          >
-                            Save Category
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingCategoryId(null)}
-                            className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedCategoryId(cat.id)}
-                            className="text-left flex-1 min-h-10 flex items-center gap-2"
-                          >
-                            <span className="font-semibold text-sm">{cat.name}</span>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800">
-                              {cat.selectionMode}
-                            </span>
-                          </button>
-                          <div className="flex items-center gap-2">
+                {(() => {
+                  const visibleCategories = filterCategories(activeCategories, categoryFilter);
+                  if (visibleCategories.length === 0) {
+                    return (
+                      <p className="text-xs text-slate-500">No matching categories.</p>
+                    );
+                  }
+                  return visibleCategories.map((cat) => {
+                    const isCurrent = cat.id === effectiveSelectedCategoryId;
+                    const isEditing = editingCategoryId === cat.id;
+                    return (
+                      <div
+                        key={cat.id}
+                        className={`p-3 rounded-lg border ${
+                          isCurrent
+                            ? 'border-sky-500 bg-sky-50/40 dark:bg-sky-950/20'
+                            : 'border-slate-200 dark:border-slate-800'
+                        }`}
+                      >
+                        {isEditing ? (
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="text"
+                              aria-label="Edit category name"
+                              value={editingCategoryName}
+                              onChange={(e) => setEditingCategoryName(e.target.value)}
+                              className="flex-1 min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                            />
+                            <select
+                              aria-label="Edit category selection mode"
+                              value={editingCategoryMode}
+                              onChange={(e) =>
+                                setEditingCategoryMode(e.target.value as SelectionMode)
+                              }
+                              className="min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                            >
+                              <option value="single">Single</option>
+                              <option value="multi">Multi</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveCategoryEdit(cat.id)}
+                              className="min-h-10 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
+                            >
+                              Save Category
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCategoryId(null)}
+                              className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <button
                               type="button"
                               onClick={() => {
-                                setEditingCategoryId(cat.id);
-                                setEditingCategoryName(cat.name);
-                                setEditingCategoryMode(cat.selectionMode);
+                                setSelectedCategoryId(cat.id);
+                                scrollToElementEditor();
                               }}
-                              className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
+                              className="text-left flex-1 min-h-10 flex items-center gap-2"
                             >
-                              Edit
+                              <span className="font-semibold text-sm">{cat.name}</span>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800">
+                                {cat.selectionMode}
+                              </span>
                             </button>
-                            <button
-                              type="button"
-                              aria-label={`Delete category ${cat.name}`}
-                              onClick={() => handleDeleteCategory(cat.id)}
-                              className="min-h-10 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
-                            >
-                              Delete
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCategoryId(cat.id);
+                                  setEditingCategoryName(cat.name);
+                                  setEditingCategoryMode(cat.selectionMode);
+                                }}
+                                className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Delete category ${cat.name}`}
+                                onClick={() => handleDeleteCategory(cat.id)}
+                                className="min-h-10 px-3 rounded-lg bg-rose-600/10 text-rose-600 dark:text-rose-400 text-xs font-medium"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
 
             {/* Elements for Selected Category */}
             {effectiveSelectedCategoryId !== '' && (
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div
+                id="selected-category-elements"
+                className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-4"
+              >
                 <h2 className="text-sm font-bold">
                   Elements in &ldquo;
                   {activeCategories.find((c) => c.id === effectiveSelectedCategoryId)?.name}
@@ -1109,22 +1145,22 @@ export function App({
                 )}
 
                 <form onSubmit={handleAddElement} className="space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="space-y-2">
                     <input
                       type="text"
                       aria-label="New element label"
                       placeholder="Button label (e.g. Golden Hour)"
                       value={newElementLabel}
                       onChange={(e) => setNewElementLabel(e.target.value)}
-                      className="min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
+                      className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
                     />
-                    <input
-                      type="text"
+                    <textarea
+                      rows={3}
                       aria-label="New element value"
                       placeholder="Prompt value (e.g. warm golden hour sunlight)"
                       value={newElementValue}
                       onChange={(e) => setNewElementValue(e.target.value)}
-                      className="min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm"
+                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 text-sm"
                     />
                   </div>
                   <button
@@ -1135,54 +1171,85 @@ export function App({
                   </button>
                 </form>
 
-                <div className="space-y-2">
-                  {selectedCategoryElements.map((el) => (
-                    <div
-                      key={el.id}
-                      className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2"
+                <div className="relative">
+                  <input
+                    type="text"
+                    aria-label="Search elements in category"
+                    placeholder="Search elements in category..."
+                    value={elementFilter}
+                    onChange={(e) => setElementFilter(e.target.value)}
+                    className="w-full min-h-12 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 pr-12 text-sm"
+                  />
+                  {elementFilter.length > 0 && (
+                    <button
+                      type="button"
+                      aria-label="Clear search elements in category"
+                      onClick={() => setElementFilter('')}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 min-h-10 min-w-10 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
                     >
-                      {editingElementId === el.id ? (
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            aria-label="Edit element label"
-                            value={editingElementLabel}
-                            onChange={(e) => setEditingElementLabel(e.target.value)}
-                            className="w-full min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
-                          />
-                          <input
-                            type="text"
-                            aria-label="Edit element value"
-                            value={editingElementValue}
-                            onChange={(e) => setEditingElementValue(e.target.value)}
-                            className="w-full min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveElementEdit(el.id)}
-                              className="min-h-10 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
-                            >
-                              Save Element
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingElementId(null)}
-                              className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="font-semibold text-sm">{el.label}</div>
-                            <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                              {el.value}
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  {(() => {
+                    const visibleCategoryElements = filterElements(
+                      selectedCategoryElements,
+                      elementFilter,
+                    );
+                    if (visibleCategoryElements.length === 0) {
+                      return (
+                        <p className="text-xs text-slate-500">No matching elements.</p>
+                      );
+                    }
+                    return visibleCategoryElements.map((el) => (
+                      <div
+                        key={el.id}
+                        className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2"
+                      >
+                        {editingElementId === el.id ? (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              aria-label="Edit element label"
+                              value={editingElementLabel}
+                              onChange={(e) => setEditingElementLabel(e.target.value)}
+                              className="w-full min-h-10 rounded-lg border border-slate-300 dark:border-slate-700 px-2 text-sm bg-white dark:bg-slate-950"
+                            />
+                            <textarea
+                              rows={3}
+                              aria-label="Edit element value"
+                              value={editingElementValue}
+                              onChange={(e) => setEditingElementValue(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-700 p-2 text-sm bg-white dark:bg-slate-950"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveElementEdit(el.id)}
+                                className="min-h-10 px-3 rounded-lg bg-sky-600 text-white text-xs font-semibold"
+                              >
+                                Save Element
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingElementId(null)}
+                                className="min-h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs"
+                              >
+                                Cancel
+                              </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-sm">{el.label}</div>
+                              <div className="text-xs font-mono text-slate-500 dark:text-slate-400 whitespace-pre-wrap break-words">
+                                {el.value}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={() => {
@@ -1206,7 +1273,8 @@ export function App({
                         </div>
                       )}
                     </div>
-                  ))}
+                  ));
+                  })()}
                 </div>
               </div>
             )}
