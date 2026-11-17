@@ -151,6 +151,15 @@ export function App({
   const accountConflictRef = useRef<{ previousUserId: string; newUserId: string } | null>(
     accountConflict,
   );
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
   const epochRef = useRef<number>(0);
   const syncInFlightRef = useRef<boolean>(false);
   const syncQueuedRef = useRef<boolean>(false);
@@ -366,12 +375,20 @@ export function App({
   };
 
   const handleCopyPrompt = async () => {
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = null;
+    }
     try {
       await clipboardWrite(assembledPrompt);
       setCopyStatus('copied');
     } catch {
       setCopyStatus('error');
     }
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopyStatus('idle');
+      copyTimerRef.current = null;
+    }, 2000);
   };
 
   const mutateAndMaybeSync = (nextState: LocalWorkspaceState) => {

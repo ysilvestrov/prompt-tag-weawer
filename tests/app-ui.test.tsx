@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { App } from '../src/client/App.tsx';
 import { createInitialGuestState, saveWorkspaceState } from '../src/client/storage.ts';
@@ -411,6 +411,41 @@ describe('App UI: Generator, CRUD, Theme, and Unsynced Logout Guard', () => {
       );
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  test('Copy button resets from Copied! back to Copy to Clipboard after 2 seconds', async () => {
+    const storage = createMemoryStorage();
+    vi.useFakeTimers();
+
+    try {
+      render(
+        <App
+          storage={storage}
+          fetchFn={offlineFetch}
+          nowFn={() => 8000}
+          clipboardWrite={async () => {}}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Copy to Clipboard' }));
+      });
+      expect(screen.getByRole('button', { name: 'Copied!' }).textContent).toBe('Copied!');
+
+      act(() => {
+        vi.advanceTimersByTime(1999);
+      });
+      expect(screen.getByRole('button', { name: 'Copied!' }).textContent).toBe('Copied!');
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.getByRole('button', { name: 'Copy to Clipboard' }).textContent).toBe(
+        'Copy to Clipboard',
+      );
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
